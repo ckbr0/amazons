@@ -52,7 +52,7 @@ Mkfile.old
 dkms.conf
 
 # Python byte code
-*.pyc
+.py[cod]
 
 # Project folders
 bin/
