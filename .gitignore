@@ -54,6 +54,9 @@ dkms.conf
 # Python byte code
 .py[cod]
 
+# ninja files
+.ninja*
+
 # Project folders
 bin/
 tmp/
