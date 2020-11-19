@@ -51,7 +51,7 @@ class Compiler():
             return flags
 
     def get_defines(self):
-        defines = ['_REENTRANT']
+        defines = []#['_REENTRANT']
         if self._config == 'debug':
             defines.append('DEBUG')
 
