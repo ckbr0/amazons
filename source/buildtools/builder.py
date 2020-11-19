@@ -5,33 +5,15 @@ import pickle
 import subprocess
 
 import ninja_syntax
-
-# Base paths
-projectdir = Path.cwd()
-sourcedir = Path(projectdir, 'source')
-tmpdir = Path(projectdir, 'tmp')
-bindir = Path(projectdir, 'bin')
-
-# Host
-host_platform = platform.system()
-host_machine = platform.machine()
-
-# Target
-target_platform = sys.argv[1]
-target_configuration = sys.argv[2]
-target_name = sys.argv[3]
-
-# Build dirs
-builddir = tmpdir / target_platform / target_configuration
-ninja_file = builddir / 'build.ninja'
-outdir = bindir / target_platform
-
-target_file = sorted(sourcedir.glob('*.target.py'))[0]
+from compiler import Compiler
+from target import Target
+from module import Module
 
 class Builder():
-    def __init__(self, platform, configuration):
+    def __init__(self, platform, configuration, sourcedir):
         self.__platform = platform
         self.__configuration = configuration
+        self.__sourcedir = sourcedir
         self.__targets = {}
     
     @property
@@ -41,235 +23,160 @@ class Builder():
     @property
     def configuration(self):
         return self.__configuration
+    
+    @property
+    def sourcedir(self):
+        return self.__sourcedir
 
-    def target(self, name, cflags=[], ldflags=[]):
-        self.__targets[name] = Target(name, cflags, ldflags)
+    def target(self, name, defines=[], includes=[], libs=[], cflags=[], ldflags=[]):
+        self.__targets[name] = Target(name, defines, includes, libs, cflags, ldflags, self)
         return self.__targets[name]
     
     @property
     def targets(self):
         return self.__targets
 
-class CompilerFlags():
-    def __init__(self, cflags, ldflags):
-        self.__cflags = cflags
-        self.__ldflags = ldflags
+if __name__ == '__main__':
 
-    @property
-    def cflags(self):
-        return self.__cflags
+    # Base paths
+    projectdir = Path.cwd()
+    sourcedir = Path(projectdir, 'source')
+    tmpdir = Path(projectdir, 'tmp')
+    bindir = Path(projectdir, 'bin')
 
-    @cflags.setter
-    def cflags(self, flags):
-        if self.__cflags is None:
-            self.__cflags = []
-        if isinstance(flags, str):
-            self.__cflags.append(flags)
-        elif isinstance(flags, list):
-            self.__cflags += flags
-        else:
-            raise ValueError
+    # Host
+    host_platform = platform.system().lower()
+    host_arch = platform.machine()
 
-    @property
-    def ldflags(self):
-        return self.__ldflags
+    # Target
+    target_platform = sys.argv[1]
+    target_configuration = sys.argv[2]
+    target_name = sys.argv[3]
 
-    @ldflags.setter
-    def ldflags(self, flags):
-        if self.__ldflags is None:
-            self.__ldflags = []
-        if isinstance(flags, str):
-            self.__ldflags.append(flags)
-        elif isinstance(flags, list):
-            self.__ldflags += flags
-        else:
-            raise ValueError
+    # Build dirs
+    builddir = tmpdir / target_platform / target_configuration
+    ninja_file = builddir / 'build.ninja'
+    outdir = bindir / target_platform
 
-class Target(CompilerFlags):
-    def __init__(self, name, cflags, ldflags):
-        self._name = name
-        super().__init__(cflags, ldflags)
-        self.__modules = {}
+    # Find target files
+    target_files = sorted(sourcedir.glob('**/*.target.py'))
 
-    @property
-    def modules(self):
-        return self.__modules
+    # Create Builder and execute target files
+    builder = Builder(target_platform, target_configuration, sourcedir)
+    for target_file in target_files:
+        exec(target_file.open().read(), {'bld' : builder})
 
-    def module(self, name, type='default', cflags=[], ldflags=[], libs=[], deps=[]):
-        self.__modules[name] = Module(name, type, cflags, ldflags, libs, deps)
-        return self.__modules[name]
+    # Set target and modules to build
+    target_to_build = builder.targets[target_name]
+    modules_to_build = target_to_build.modules
 
-class Module(CompilerFlags):
-    def __init__(self, name, type, cflags, ldflags, libs, deps):
-        super().__init__(cflags, ldflags)
-        self.__name = name
-        self.__libs = libs
-        self.__type = type
-        self.__deps = deps
-        self.__unity_file_name = self.__name + '.unity.cpp'
+    # Create compiler
+    compiler = Compiler(host_platform, host_arch, target_platform, target_configuration)
 
-        if type == 'launcher':
-            self.__bin_file_name = self.__name
-            self.__object_file_name = self.__name + '.unity.o'
-        else:
-            self.ldflags = '-shared'
-            self.__bin_file_name = 'lib' + self.__name + '.so'
-            self.__object_file_name = self.__name + '.unity.o'
-
-    @property
-    def name(self):
-        return self.__name
+    # Create build.ninja file and ninja writer
+    builddir.mkdir(parents=True, exist_ok=True)
+    n = ninja_syntax.Writer(ninja_file.open('w'))
     
-    @property
-    def unity_file_name(self):
-        return self.__unity_file_name
-
-    @property
-    def object_file_name(self):
-        return self.__object_file_name
-    
-    @property
-    def bin_file_name(self):
-        return self.__bin_file_name
-    
-    @property
-    def deps(self):
-        return self.__deps
-
-    @property
-    def libs(self):
-        return self.__libs
-
-    @libs.setter
-    def libs(self, libs):
-        if self.__libs is None:
-            self.__libs = []
-        if isinstance(libs, str):
-            self.__libs.append(libs)
-        elif isinstance(libs, list):
-            self.__libs += libs
-        else:
-            raise ValueError
-
-    @property
-    def ignore_files(self):
-        return self.__ignore_files
-
-    @ignore_files.setter
-    def ignore_files(self, files):
-        if self.__ignore_files is None:
-            self.__ignore_files = []
-        if isinstance(flags, str):
-            self.__ignore_files.append(flags)
-        elif isinstance(flags, list):
-            self.__ignore_files += flags
-        else:
-            raise ValueError
-    
-    @property
-    def type(self):
-        return self.__type
-
-    @type.setter
-    def type(self, type):
-        self.__type = type
-
-builder = Builder(target_platform, target_configuration)
-exec(target_file.open().read(), {'bld' : builder})
-
-class Compiler():
-    def __init__(self):
-        pass
-
-    def get_cxx(self):
-        return 'gcc'
-
-    def get_ar(self):
-        return 'ar'
-
-    def get_compile_rule(self):
-        rule = {
-            'command' : '$cxx -MMD -MT $out -MF $out.d $cflags -c $in -o $out',
-            'description' : 'CXX $out',
-            'depfile' : '$out.d',
-            'deps' : 'gcc'
-        }
-        return rule
-
-    def get_link_rule(self):
-        rule = {
-            'command' : '$cxx $ldflags -o $out $in $libs',
-            'description' : 'LINK $out'
-        }
-        return rule
-
-    def get_cflags(self):
-        return ['-g', '-Wall', '-I'+str(gamedir), '-D_REENTRANT']
-
-    def get_ldflags(self):
-        return ['-Wall', '-L/usr/lib']
-
-target_to_build = builder.targets[target_name]
-modules_to_build = target_to_build.modules
-
-compiler = Compiler()
-
-builddir.mkdir(parents=True, exist_ok=True)
-ninja_writer = ninja_syntax.Writer(ninja_file.open('w'))
-n = ninja_writer
-
-n.variable('ninja_required_version', '1.9')
-n.newline()
-
-n.variable('root', '.')
-n.variable('builddir', builddir.relative_to(projectdir))
-n.variable('bindir', outdir.relative_to(projectdir))
-
-n.variable('cxx', compiler.get_cxx())
-n.variable('ar', compiler.get_ar())
-n.variable('cflags', ' '.join(target_to_build.cflags))
-n.variable('ldflags', ' '.join(target_to_build.ldflags))
-
-n.newline()
-
-cxx_rule = compiler.get_compile_rule()
-n.rule('cxx',
-        command=cxx_rule['command'],
-        depfile=cxx_rule['depfile'],
-        deps=cxx_rule['deps'],
-        description=cxx_rule['description'])
-n.newline()
-link_rule = compiler.get_link_rule()
-n.rule('link',
-        command=link_rule['command'],
-        description=link_rule['description'])
-n.newline()
-n.rule('unity',
-        command='python3 -B $root/source/buildtools/unity.py linux $in $out', 
-        description='UNITY $out',
-        restat=True)
-
-n.newline()
-n.comment('Modules')
-
-for module in modules_to_build.values():
+    n.variable('ninja_required_version', '1.10')
     n.newline()
-    name = module.name
-    n.comment(name)
-    n.build(f'$builddir/' + module.unity_file_name,
-            'unity',
-            inputs='$root/source/' + module.name)
-    n.build('$builddir/' + module.object_file_name,
-            'cxx',
-            inputs='$builddir/' + module.unity_file_name,
-            variables={'cflags' : '$cflags ' + ' '.join(module.cflags)})
-    n.build('$bindir/' + module.bin_file_name,
-            'link',
-            inputs='$builddir/' + module.object_file_name,
-            variables={'ldflags' : '$ldflags ' + ' '.join(module.ldflags),
-                'libs' : ' '.join(['-l' + x for x in module.deps + module.libs])},
-                implicit=' '.join(['$bindir/' + modules_to_build[x].bin_file_name for x in module.deps]))
 
-n.newline()
-n.comment('Modules')
+    n.variable('root', '.')
+    n.variable('builddir', builddir.relative_to(projectdir))
+    n.variable('bindir', outdir.relative_to(projectdir))
+    n.variable('sourcedir', sourcedir.relative_to(projectdir))
+
+    n.variable('cxx', compiler.get_cxx())
+    n.variable('ar', compiler.get_ar())
+
+    # Set build wide compiler flags
+    cflags = ' '.join(target_to_build.cflags)
+    defines = '{compiler.get_define_prefix()}'.join(target_to_build.defines)
+    includes = '{compiler.get_include_prefix()}'.join(target_to_build.includes)
+    n.variable('cflags', f'{cflags} {defines} {includes}')
+
+    # Set build wide linker flags
+    ldflags = ' '.join(target_to_build.ldflags)
+    libs = '{compiler.get_link_library_prefix()}'.join(target_to_build.libs)
+    n.variable('ldflags', f'{ldflags} {libs}')
+
+    n.newline()
+
+    n.comment("Rules")
+    cxx_rule = compiler.get_compile_rule()
+    n.rule('cxx',
+            command=cxx_rule['command'],
+            depfile=cxx_rule['depfile'],
+            deps=cxx_rule['deps'],
+            description=cxx_rule['description'])
+    n.newline()
+    link_rule = compiler.get_link_rule()
+    n.rule('link',
+            command=link_rule['command'],
+            description=link_rule['description'])
+    n.newline()
+    n.rule('unity',
+            command='python3 -B $root/source/buildtools/unity.py linux $in $out', 
+            description='UNITY $out',
+            restat=True)
+    """
+    n.rule('runner',
+            command='python3 -B $root/source/buildtools/runner.py $in $module $out',
+            description='RUNNER $out')
+    """
+    n.newline()
+    n.comment('Modules')
+
+    for module in modules_to_build.values():
+        n.newline()
+        n.comment(module.name)
+
+        # Resolve explicit compiler and linker flags
+        cflags = ' '.join(module.cflags)
+        ldflags = ' '.join(module.ldflags)
+
+        # Resolve defines
+        defines = ' '.join([f'{compiler.get_define_prefix()}{x}' for x in module.public_defines + module.private_defines])
+
+        # Resolve includes
+        includes = ' '.join([f'{compiler.get_include_prefix()}{x}' for x in module.public_includes + module.private_includes])
+
+        # Resolve libs
+        libs = ' '.join([f'{compiler.get_link_library_prefix()}{x}' for x in module.libs])
+
+        # Resolv module dependencies
+        dep_includes = ''
+        dep_libs = ''
+        for dep in module.deps:
+            dep_module = modules_to_build[dep]
+            dep_includes += ' '.join([f'{compiler.get_include_prefix()}{x}' for x in dep_module.public_includes]) 
+            dep_libs += f'{compiler.get_include_prefix()}{dep_module.name}_{builder.configuration}'
+            
+        unity_src_file_name = f'{module.name}.unity.cpp'
+        unity_obj_file_name = f'{module.name}.unity.o'
+
+        # Create unity file
+        n.build(f'$builddir/{unity_src_file_name}',
+                'unity',
+                inputs=f'$root/source/{module.name}')
+
+        # Compile files
+        n.build(f'$builddir/{unity_obj_file_name}',
+                'cxx',
+                inputs=f'$builddir/{unity_src_file_name}',
+                variables={'cflags' : f'$cflags {cflags} {defines} {includes} {dep_includes}'})
+
+        # Link
+        output_prefix = compiler.get_output_prefix(module.type)
+        output_name = target_to_build.name if module.type == 'launcher' else module.name
+        output_extension = compiler.get_output_extension(module.type)
+        output_ldflag = compiler.get_output_ldflag(module.type)
+        n.build(f'$bindir/{output_prefix}{output_name}_{builder.configuration}{output_extension}',
+                'link',
+                inputs=f'$builddir/{unity_obj_file_name}',
+                variables={
+                    'ldflags' : f'$ldflags {output_ldflag} {ldflags}',
+                    'libs' : f'{libs} {dep_libs}'},
+                implicit='')
+
+    n.newline()
 
