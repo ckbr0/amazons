@@ -8,6 +8,7 @@ import ninja_syntax
 from compiler import Compiler
 from target import Target
 from module import Module
+from define import create_defines_file
 
 class Builder():
     def __init__(self, platform, configuration, sourcedir):
@@ -85,17 +86,21 @@ if __name__ == '__main__':
     n.variable('bindir', outdir.relative_to(projectdir))
     n.variable('sourcedir', sourcedir.relative_to(projectdir))
 
+    n.newline()
     n.variable('cxx', compiler.get_cxx())
     n.variable('ar', compiler.get_ar())
 
     # Set build wide compiler flags
-    cflags = ' '.join(target_to_build.cflags)
-    defines = '{compiler.get_define_prefix()}'.join(target_to_build.defines)
+    cflags = ' '.join(compiler.get_cflags())
+    cflags = f"{cflags} {' '.join(target_to_build.cflags)}"
+    global_defines = compiler.get_defines()
+    global_defines.extend(target_to_build.defines)
     includes = '{compiler.get_include_prefix()}'.join(target_to_build.includes)
-    n.variable('cflags', f'{cflags} {defines} {includes}')
+    n.variable('cflags', f'{cflags} {includes}')
 
     # Set build wide linker flags
-    ldflags = ' '.join(target_to_build.ldflags)
+    ldflags = ' '.join(compiler.get_ldflags())
+    ldflags = f"{ldflags} {' '.join(target_to_build.ldflags)}"
     libs = '{compiler.get_link_library_prefix()}'.join(target_to_build.libs)
     n.variable('ldflags', f'{ldflags} {libs}')
 
@@ -135,24 +140,44 @@ if __name__ == '__main__':
         ldflags = ' '.join(module.ldflags)
 
         # Resolve defines
-        defines = ' '.join([f'{compiler.get_define_prefix()}{x}' for x in module.public_defines + module.private_defines])
+        defines = global_defines.copy()
+        defines.extend(module.public_defines)
+        defines.extend(module.private_defines)
 
         # Resolve includes
-        includes = ' '.join([f'{compiler.get_include_prefix()}{x}' for x in module.public_includes + module.private_includes])
+        includes = module.private_includes.copy()
+        includes.extend(module.public_includes)
 
         # Resolve libs
-        libs = ' '.join([f'{compiler.get_link_library_prefix()}{x}' for x in module.libs])
+        libs = module.libs.copy()
+
+        # Reslove export define
+        if module.type == 'default':
+            defines.append(f'{module.name.upper()}_API {compiler.get_export_define()}')
 
         # Resolv module dependencies
-        dep_includes = ''
-        dep_libs = ''
         for dep in module.deps:
             dep_module = modules_to_build[dep]
-            dep_includes += ' '.join([f'{compiler.get_include_prefix()}{x}' for x in dep_module.public_includes]) 
-            dep_libs += f'{compiler.get_include_prefix()}{dep_module.name}_{builder.configuration}'
-            
+
+            defines.append(f'{dep.upper()}_API {compiler.get_import_define()}')
+            includes.extend(dep_module.public_includes)
+            libs.append(f'{dep_module.name}_{builder.configuration}')
+
+        # Convert lists to strings
+        include_prefix = compiler.get_include_prefix()
+        includes = ' '.join(map(lambda x: f'{include_prefix}{x}', includes))
+        link_libs_prefix = compiler.get_link_library_prefix()
+        libs = ' '.join(map(lambda x: f'{link_libs_prefix}{x}', libs))
+
+        # Define unity build files
         unity_src_file_name = f'{module.name}.unity.cpp'
         unity_obj_file_name = f'{module.name}.unity.o'
+
+        # Create defines file
+        define_file_flag = compiler.get_force_include_flag()
+        defines_file_name = f'{module.name}.defines.h'
+        defines_file = builddir / defines_file_name
+        create_defines_file(defines_file, defines)
 
         # Create unity file
         n.build(f'$builddir/{unity_src_file_name}',
@@ -163,7 +188,7 @@ if __name__ == '__main__':
         n.build(f'$builddir/{unity_obj_file_name}',
                 'cxx',
                 inputs=f'$builddir/{unity_src_file_name}',
-                variables={'cflags' : f'$cflags {cflags} {defines} {includes} {dep_includes}'})
+                variables={'cflags' : f'$cflags {cflags} {includes} {define_file_flag} $builddir/{defines_file_name}'})
 
         # Link
         output_prefix = compiler.get_output_prefix(module.type)
@@ -175,7 +200,7 @@ if __name__ == '__main__':
                 inputs=f'$builddir/{unity_obj_file_name}',
                 variables={
                     'ldflags' : f'$ldflags {output_ldflag} {ldflags}',
-                    'libs' : f'{libs} {dep_libs}'},
+                    'libs' : f'{libs}'},
                 implicit='')
 
     n.newline()

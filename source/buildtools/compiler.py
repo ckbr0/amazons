@@ -43,11 +43,19 @@ class Compiler():
             }
 
     def get_cflags(self):
-        if 'linux' in self._host:
-            flags = ['-Wall', '-I'+str(gamedir), '-D_REENTRANT']
+        flags = []
+        if self._host in ['linux']:
+            flags.extend(['-Wall', '-Wextra', '-Wno-deprecated', '-Wno-missing-field-initializers', '-Wno-unused-parameter', '-fno-rtti', '-fno-exceptions', '-fvisibility=hidden', '-pipe'])
             if self._config == 'debug':
-                flags.append('-g')
+                flags.extend(['-g', '-O2'])
             return flags
+
+    def get_defines(self):
+        defines = ['_REENTRANT']
+        if self._config == 'debug':
+            defines.append('DEBUG')
+
+        return defines
 
     def get_ldflags(self):
         if 'linux' in self._host:
@@ -92,3 +100,21 @@ class Compiler():
     def get_define_prefix(self):
         if self._target in ['linux64', 'android']:
             return '-D'
+
+    def get_export_define(self):
+        if self._target in ['linux64', 'android']:
+            return '__attribute__((visibility("default")))'
+        elif self._target in ['win64']:
+            return '__declspec(dllexport)'
+    
+    def get_import_define(self):
+        if self._target in ['linux64', 'android']:
+            return ''
+        elif self._target in ['win64']:
+            return '__declspec(dllimport)'
+
+    def get_force_include_flag(self):
+        if self._target in ['linux64', 'android']:
+            return '-include'
+        elif self._target in ['win64']:
+            return '/FI'
