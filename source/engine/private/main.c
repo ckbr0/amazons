@@ -1,14 +1,12 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_vulkan.h>
-#include "engine/game_context.h"
+#include "module_context.h"
+#include "module_loader.h"
 
 #define MB 1024000
 
-void (*on_load)(game_context*);
-
 int main(int argc, char* argv[])
 {
-	// First check if game module was set
 	if (argc < 2)
 	{
 		SDL_LogCritical(SDL_LOG_CATEGORY_ERROR, "input game module");
@@ -23,31 +21,21 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
-	// Load Vulkan library
-	SDL_Vulkan_LoadLibrary(NULL);
-
 	//printf("%s\n", argv[1]);
 
-	game_context* game = (game_context*)malloc(sizeof(game_context));
-
-	void* game_module_handel = SDL_LoadObject(argv[1]);
-	if (game_module_handel == NULL)
-	{
-		SDL_LogCritical(SDL_LOG_CATEGORY_ERROR, "Unable to load game module: %s", SDL_GetError());
-		return 1;
-	}
-
-	on_load = (void (*)(game_context*))SDL_LoadFunction(game_module_handel, "on_load");
-	if (on_load != NULL)
-	{
-		on_load(game);
-	}
+	module_context* game = (module_context*)malloc(sizeof(module_context));
+	char* module_name = argv[1];
+	void* module_handle = NULL;
+	load_module(module_name, module_handle, game);
 
 	//game->init();
 	
 	void* mem_area = malloc(MB*50);
 
-	SDL_Window *window = NULL;
+	SDL_Vulkan_LoadLibrary(NULL);
+
+	SDL_Window *window;
+
 	window = SDL_CreateWindow(
 		"An SDL2 window",                  // window title
 		SDL_WINDOWPOS_UNDEFINED,           // initial x position

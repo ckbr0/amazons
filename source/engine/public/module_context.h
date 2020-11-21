@@ -1,7 +1,7 @@
-#ifndef GAME_CONTEXT
-#define GAME_CONTEXT
+#ifndef MODULE_CONTEXT
+#define MODULE_CONTEXT
 
-struct game_context
+struct module_context
 {
 	void (*init)();
 	void (*handle_event)(int event);

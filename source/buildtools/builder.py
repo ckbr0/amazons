@@ -1,4 +1,5 @@
 import sys
+import os
 import platform
 from pathlib import Path
 import pickle
@@ -81,10 +82,10 @@ if __name__ == '__main__':
     n.variable('ninja_required_version', '1.10')
     n.newline()
 
-    n.variable('root', '.')
-    n.variable('builddir', builddir.relative_to(projectdir))
-    n.variable('bindir', outdir.relative_to(projectdir))
-    n.variable('sourcedir', sourcedir.relative_to(projectdir))
+    n.variable('root', f'{projectdir}')
+    n.variable('builddir', f'$root/{builddir.relative_to(projectdir)}')
+    n.variable('bindir', f'$root/{outdir.relative_to(projectdir)}')
+    n.variable('sourcedir', f'$root/{sourcedir.relative_to(projectdir)}')
 
     n.newline()
     n.variable('cxx', compiler.get_cxx())
@@ -120,9 +121,9 @@ if __name__ == '__main__':
             description=link_rule['description'])
     n.newline()
     n.rule('unity',
-            command='python3 -B $root/source/buildtools/unity.py linux $in $out', 
+            command='python3 -B $root/source/buildtools/unity.py linux $out $in', 
             description='UNITY $out',
-            restat=True)
+            restat=False)
     """
     n.rule('runner',
             command='python3 -B $root/source/buildtools/runner.py $in $module $out',
@@ -152,7 +153,7 @@ if __name__ == '__main__':
         libs = module.libs.copy()
 
         # Reslove export define
-        if module.type == 'default':
+        if not module.type == 'launcher':
             defines.append(f'{module.name.upper()}_API {compiler.get_export_define()}')
 
         # Resolv module dependencies
@@ -165,13 +166,16 @@ if __name__ == '__main__':
 
         # Convert lists to strings
         include_prefix = compiler.get_include_prefix()
-        includes = ' '.join(map(lambda x: f'{include_prefix}{x}', includes))
+        includes_str = ' '.join(map(lambda x: f'{include_prefix}{x}', includes))
         link_libs_prefix = compiler.get_link_library_prefix()
-        libs = ' '.join(map(lambda x: f'{link_libs_prefix}{x}', libs))
+        libs_str = ' '.join(map(lambda x: f'{link_libs_prefix}{x}', libs))
 
         # Define unity build files
+        module_source_path = sourcedir / module.name
         unity_src_file_name = f'{module.name}.unity.cpp'
         unity_obj_file_name = f'{module.name}.unity.o'
+        unity_input_files = sorted(module_source_path.glob('**/*.c*'))
+        unity_input_files_str = list(map(lambda x: f'$sourcedir/{str(x.relative_to(sourcedir))}', unity_input_files))
 
         # Create defines file
         define_file_flag = compiler.get_force_include_flag()
@@ -182,13 +186,13 @@ if __name__ == '__main__':
         # Create unity file
         n.build(f'$builddir/{unity_src_file_name}',
                 'unity',
-                inputs=f'$root/source/{module.name}')
+                inputs=unity_input_files_str)
 
         # Compile files
         n.build(f'$builddir/{unity_obj_file_name}',
                 'cxx',
                 inputs=f'$builddir/{unity_src_file_name}',
-                variables={'cflags' : f'$cflags {cflags} {includes} {define_file_flag} $builddir/{defines_file_name}'})
+                variables={'cflags' : f'$cflags {cflags} {includes_str} {define_file_flag} $builddir/{defines_file_name}'})
 
         # Link
         output_prefix = compiler.get_output_prefix(module.type)
@@ -200,7 +204,7 @@ if __name__ == '__main__':
                 inputs=f'$builddir/{unity_obj_file_name}',
                 variables={
                     'ldflags' : f'$ldflags {output_ldflag} {ldflags}',
-                    'libs' : f'{libs}'},
+                    'libs' : f'{libs_str}'},
                 implicit='')
 
     n.newline()

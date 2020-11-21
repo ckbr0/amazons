@@ -1,7 +1,7 @@
 #include "game.h"
-#include "engine/game_context.h"
+#include "module_context.h"
 
-void on_load(game_context* ctx)
+void on_load(module_context* ctx)
 {
 
 }

@@ -5,7 +5,7 @@ amazons = bld.target('amazons', ldflags=['-L$builddir', '-L$bindir', '\'-Wl,-rpa
 #    '-pipe', '-O2', '-DNDEBUG', '-DDEBUG'])
 
 amazons.module_directories([
-    'launcher',
+    #'launcher',
     'engine',
     'game'
     ])

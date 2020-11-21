@@ -1,8 +1,8 @@
 #ifndef GAME
 #define GAME
 
-struct game_context;
+struct module_context;
 
-extern "C" __attribute__((__visibility__("default"))) void on_load(game_context* ctx);
+extern "C" GAME_API void on_load(module_context* ctx);
 
 #endif
